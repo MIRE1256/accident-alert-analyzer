@@ -15,24 +15,39 @@ st.set_page_config(
 
 st.markdown("""
     <style>
+    /* บังคับ Top Bar ด้านบนสุดให้เป็นสีฟ้าเทอร์ควอยซ์ */
+    header[data-testid="stHeader"] {
+        background-color: #00acc1 !important;
+    }
+    
+    /* ไอคอนบน Top Bar ให้เป็นสีขาว */
+    header[data-testid="stHeader"] * {
+        color: #ffffff !important;
+    }
+
+    /* พื้นหลังหลักของเว็บขาวไข่มุก */
     .stApp {
         background-color: #f4fbfb;
         color: #111111 !important;
     }
+    
     p, span, label, li, div {
         color: #111111 !important;
         font-family: 'Sarabun', sans-serif;
     }
+    
     h1, h2, h3, h4 {
         color: #005b66 !important;
         font-weight: bold !important;
     }
+    
     textarea, input {
         background-color: #ffffff !important;
         color: #111111 !important;
         border: 1px solid #b2ebf2 !important;
         border-radius: 8px !important;
     }
+    
     .stButton>button {
         background-color: #00acc1 !important;
         color: #ffffff !important;
@@ -45,6 +60,7 @@ st.markdown("""
     .stButton>button:hover {
         background-color: #00838f !important;
     }
+    
     [data-testid="stVerticalBlockBorderWrapper"] {
         background-color: #ffffff !important;
         border: 2px solid #80deea !important;
@@ -52,6 +68,7 @@ st.markdown("""
         padding: 10px !important;
         box-shadow: 0 2px 6px rgba(0,0,0,0.03) !important;
     }
+    
     [data-testid="stSidebar"] {
         background-color: #e0f7fa !important;
     }
