@@ -5,7 +5,7 @@ from pythainlp.tokenize import word_tokenize
 from pythainlp.corpus import thai_stopwords
 
 # ---------------------------------------------------------
-# ตั้งค่าหน้าเว็บ และ CSS Custom
+# ตั้งค่าหน้าเว็บ และ CSS Custom (ฟ้าเทอร์ควอยซ์สดใส)
 # ---------------------------------------------------------
 st.set_page_config(
     page_title="ระบบวิเคราะห์โพสต์เตือนภัย/ข่าวอุบัติเหตุ",
@@ -203,6 +203,48 @@ def extract_structured_location(text):
 
     return loc_info if loc_info else ["ไม่พบข้อมูลสถานที่ชัดเจน"]
 
+def extract_organizations_detailed(text):
+    """สกัดรายละเอียดหน่วยงานช่วยเหลือแบบเจาะลึก (สังกัด หน้าที่ บทบาท)"""
+    org_list = []
+
+    # 1. เจ้าหน้าที่ตำรวจ
+    if re.search(r'ตำรวจ|สภ\.|เจ้าหน้าที่ตำรวจ|พนักงานสอบสวน', text):
+        police_name = re.search(r'(?:สภ\.|สถานีตำรวจภูธร)\s*([ก-๙]+)', text)
+        station = f" ({police_name.group(0)})" if police_name else ""
+        
+        actions = []
+        if 'ดำเนินคดี' in text or 'แจ้งข้อหา' in text: actions.append("ดำเนินคดีทางกฎหมาย")
+        if 'ตรวจ' in text or 'สารเสพติด' in text: actions.append("ตรวจวัดสารเสพติด/คุมประพฤติ")
+        if 'คุมตัว' in text or 'จับกุม' in text: actions.append("ควบคุมตัวผู้ก่อเหตุ")
+        
+        act_str = ", ".join(actions) if actions else "ตรวจสอบที่เกิดเหตุและสอบสวน"
+        org_list.append(f"👮 **เจ้าหน้าที่ตำรวจ{station}**\n  - **บทบาท:** {act_str}")
+
+    # 2. โรงพยาบาล / ทีมแพทย์
+    if re.search(r'โรงพยาบาล|รพ\.|แพทย์|พยาบาล|ปฐมพยาบาล', text):
+        hosp_name = re.search(r'(?:รพ\.|โรงพยาบาล)\s*([ก-๙]+)', text)
+        hosp = f" ({hosp_name.group(0)})" if hosp_name else ""
+        
+        actions = []
+        if 'รักษา' in text or 'รับตัว' in text: actions.append("รับตัวผู้บาดเจ็บเข้ารักษา")
+        if 'ตรวจ' in text or 'ตรวจร่างกาย' in text: actions.append("ตรวจชันสูตร/ตรวจร่างกายผู้ต้องหา")
+        if 'ปฐมพยาบาล' in text: actions.append("ปฐมพยาบาลเบื้องต้น")
+        
+        act_str = ", ".join(actions) if actions else "ให้การรักษาทางการแพทย์"
+        org_list.append(f"🏥 **ทีมแพทย์ / โรงพยาบาล{hosp}**\n  - **บทบาท:** {act_str}")
+
+    # 3. หน่วยกู้ภัย / มูลนิธิ
+    if re.search(r'กู้ภัย|มูลนิธิ|สว่าง|ป่อเต็กตึ๊ง|ร่วมกตัญญู|อาสาสมัคร|บรรเทาสาธารณภัย', text):
+        rescue_name = re.search(r'(?:มูลนิธิ|กู้ภัย)\s*([ก-๙]+)', text)
+        resc = f" ({rescue_name.group(0)})" if rescue_name else ""
+        org_list.append(f"🚑 **หน่วยกู้ภัย / มูลนิธิ{resc}**\n  - **บทบาท:** ลำเลียงผู้บาดเจ็บ และอำนวยความสะดวกในพื้นที่")
+
+    # 4. หน่วยงานปกครองท้องถิ่น
+    if re.search(r'อบต\.|เทศบาล|ศูนย์เด็กเล็ก|ฝ่ายปกครอง|กทม\.|สำนักงานเขต', text):
+        org_list.append("🏢 **หน่วยงานปกครองท้องถิ่น / อบต. / เทศบาล**\n  - **บทบาท:** ประสานงานพื้นที่ และดูแลเยียวยาเบื้องต้น")
+
+    return org_list if org_list else ["ไม่พบข้อมูลหน่วยงานช่วยเหลือชัดเจน"]
+
 def extract_entities(text):
     times, casualties = [], []
 
@@ -225,31 +267,18 @@ def extract_entities(text):
     for pattern in cas_patterns:
         casualties.extend(re.findall(pattern, text))
 
-    # --- สกัดหน่วยงานช่วยเหลือ ---
-    org_details = []
-    if re.search(r'ตำรวจ|สภ\.|เจ้าหน้าที่ตำรวจ', text):
-        action = " (หน้าที่: ตรวจสอบ/ดำเนินคดีทางกฎหมาย)" if any(k in text for k in ['ดำเนินคดี', 'สอบสวน', 'ตรวจหาสาร', 'แจ้งข้อหา']) else ""
-        org_details.append(f"เจ้าหน้าที่ตำรวจ{action}")
-
-    if re.search(r'โรงพยาบาล|รพ\.|แพทย์|ปฐมพยาบาล', text):
-        action = " (หน้าที่: ปฐมพยาบาล / รับตัวผู้บาดเจ็บเข้ารักษา)" if any(k in text for k in ['นำส่ง', 'รักษา', 'บาดเจ็บ', 'ตรวจร่างกาย']) else ""
-        org_details.append(f"โรงพยาบาล / ทีมแพทย์{action}")
-
-    if re.search(r'กู้ภัย|มูลนิธิ|สว่าง|ป่อเต็กตึ๊ง|ร่วมกตัญญู|อาสาสมัคร', text):
-        org_details.append("หน่วยกู้ภัย / มูลนิธิ (หน้าที่: กู้ภัยและช่วยเหลือผู้ประสบเหตุ)")
-
     return {
         "locations": extract_structured_location(text),
         "times": list(dict.fromkeys(times)) if times else ["ไม่พบข้อมูลวัน/เวลาชัดเจน"],
         "casualties": list(dict.fromkeys(casualties)) if casualties else ["ไม่พบรายงานผู้บาดเจ็บ/เสียชีวิต"],
-        "organizations": list(dict.fromkeys(org_details)) if org_details else ["ไม่พบข้อมูลหน่วยงานช่วยเหลือ"]
+        "organizations": extract_organizations_detailed(text)
     }
 
 # ---------------------------------------------------------
 # GUI Section
 # ---------------------------------------------------------
 st.title("🚨 ระบบวิเคราะห์โพสต์เตือนภัยและข่าวอุบัติเหตุ")
-st.caption("💎 สกัดข้อมูลเชิงลึก: สรุปประเด็น สถานที่ วัน/เวลา พฤติกรรมเหตุการณ์ ผู้บาดเจ็บ และหน่วยงาน")
+st.caption("💎 สกัดข้อมูลเชิงลึก: สรุปประเด็น สถานที่ วัน/เวลา พฤติกรรมเหตุการณ์ ผู้บาดเจ็บ และหน่วยงานช่วยเหลือ")
 
 st.sidebar.header("📂 ตัวเลือกข้อมูล")
 uploaded_file = st.sidebar.file_uploader("อัปโหลดไฟล์ CSV (คอลัมน์ 'text')", type=["csv"])
@@ -319,7 +348,7 @@ if st.button("🔍 วิเคราะห์ข้อความ", type="prim
             with st.container(border=True):
                 st.markdown("### 🏢 หน่วยงานช่วยเหลือ (Who Helped)")
                 for org in entities["organizations"]:
-                    st.write(f"• {org}")
+                    st.markdown(f"{org}")
 
         with st.container(border=True):
             st.markdown("### 🎬 รายละเอียดพฤติกรรมและการกระทำ (What & How)")
@@ -328,4 +357,5 @@ if st.button("🔍 วิเคราะห์ข้อความ", type="prim
 
         with st.expander("🛠️ ดูรายละเอียดการประมวลผล NLP (Tokens & Cleansing)"):
             st.write("**ข้อความหลังทำ Cleansing:**", cleaned)
-            st.write("**ผลการตัดคำ (Tokens):**", tokens)
+            st.write("**ผลการตัดคำ (Tokens):**")
+            st.info(", ".join([f"'{w}'" for w in tokens]))
