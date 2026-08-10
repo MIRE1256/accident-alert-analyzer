@@ -5,7 +5,7 @@ from pythainlp.tokenize import word_tokenize
 from pythainlp.corpus import thai_stopwords
 
 # ---------------------------------------------------------
-# ตั้งค่าหน้าเว็บ และ CSS Custom (ฟ้าเทอร์ควอยซ์ + ขาวไข่มุก + ตัวหนังสือสีเข้ม)
+# ตั้งค่าหน้าเว็บ และ CSS Custom
 # ---------------------------------------------------------
 st.set_page_config(
     page_title="ระบบวิเคราะห์โพสต์เตือนภัย/ข่าวอุบัติเหตุ",
@@ -15,33 +15,24 @@ st.set_page_config(
 
 st.markdown("""
     <style>
-    /* พื้นหลังหลักขาวไข่มุกอ่อนๆ */
     .stApp {
         background-color: #f4fbfb;
         color: #111111 !important;
     }
-    
-    /* ตัวอักษรทั่วไปให้เป็นสีดำเข้มทั้งหมด อ่านง่าย */
     p, span, label, li, div {
         color: #111111 !important;
         font-family: 'Sarabun', sans-serif;
     }
-    
-    /* หัวข้อสีฟ้าเทอร์ควอยซ์เข้ม */
     h1, h2, h3, h4 {
         color: #005b66 !important;
         font-weight: bold !important;
     }
-    
-    /* กล่องพิมพ์ข้อความ (Text Area / Input) ให้เป็นสีอ่อน อ่านง่าย */
     textarea, input {
         background-color: #ffffff !important;
         color: #111111 !important;
         border: 1px solid #b2ebf2 !important;
         border-radius: 8px !important;
     }
-    
-    /* ปุ่มกดสีฟ้าเทอร์ควอยซ์สด ตัวหนังสือขาว */
     .stButton>button {
         background-color: #00acc1 !important;
         color: #ffffff !important;
@@ -54,8 +45,6 @@ st.markdown("""
     .stButton>button:hover {
         background-color: #00838f !important;
     }
-    
-    /* ตกแต่งการ์ดแสดงผล */
     [data-testid="stVerticalBlockBorderWrapper"] {
         background-color: #ffffff !important;
         border: 2px solid #80deea !important;
@@ -63,8 +52,6 @@ st.markdown("""
         padding: 10px !important;
         box-shadow: 0 2px 6px rgba(0,0,0,0.03) !important;
     }
-    
-    /* Sidebar โทนฟ้าอ่อน */
     [data-testid="stSidebar"] {
         background-color: #e0f7fa !important;
     }
@@ -103,6 +90,7 @@ def identify_topic(text):
 def extract_entities(text):
     locations, times, casualties, organizations = [], [], [], []
 
+    # --- 1. สกัดสถานที่ ---
     loc_patterns = [
         r'(?:บริเวณ|หน้า|หลัง|ตรงข้าม|ใกล้|ทางเข้า|สี่แยก|สามแยก|แยก|ซอย|ถนน|หมู่บ้าน|แขวง|เขต|ตำบล|อำเภอ|จังหวัด|โค้ง|สะพาน)\s*([ก-๙0-9A-Za-z\s]+?)(?=\s|เมื่อ|เวลา|ส่งผล|ทำให้|เจ้าหน้าที่|มูลนิธิ|$)',
         r'(?:ถนน|ซอย|แยก|ต\.|อ\.|จ\.)\s*[ก-๙0-9]+'
@@ -111,37 +99,42 @@ def extract_entities(text):
         matches = re.findall(pattern, text)
         for m in matches:
             val = m.strip() if isinstance(m, str) else m[0].strip()
-            if len(val) > 2 and val not in ['เกิดเหตุ', 'มีผู้']:
+            if len(val) > 2 and val not in ['เกิดเหตุ', 'มีผู้', 'ได้รับบาดเจ็บ']:
                 locations.append(val)
 
+    # --- 2. สกัดวัน/เวลา (เน้นจับวันที่ตัวเลข เดือน ปี และเวลา) ---
     time_patterns = [
-        r'\d{1,2}[:.]\d{2}\s*(?:น\.|นาฬิกา)?',
-        r'เวลา\s*\d{1,2}[:.]\d{2}',
-        r'(?:เมื่อกลางดึก|เมื่อเช้า|ช่วงเช้า|ช่วงบ่าย|ช่วงค่ำ|ดึกดื่น|เมื่อวานนี้|วันนี้|ขณะนี้)'
+        r'(?:วันที่\s*)?\d{1,2}\s*(?:ม\.ค\.|ก\.พ\.|มี\.ค\.|เม\.ย\.|พ\.ค\.|มิ\.ย\.|ก\.ค\.|ส\.ค\.|ก\.ย\.|ต\.ค\.|พ\.ย\.|ธ\.ค\.|มกราคม|กุมภาพันธ์|มีนาคม|เมษายน|พฤษภาคม|มิถุนายน|กรกฎาคม|สิงหาคม|กันยายน|ตุลาคม|พฤศจิกายน|ธันวาคม)(?:\s*(?:พ\.ศ\.|ศ\.)?\s*\d{2,4})?',
+        r'\d{1,2}[:.]\d{2}\s*(?:น\.|นาฬิกา)',
+        r'เวลา\s*\d{1,2}[:.]\d{2}\s*(?:น\.)?',
+        r'(?:เมื่อกลางดึก|เมื่อเช้า|ช่วงเช้า|ช่วงบ่าย|ช่วงค่ำ|เมื่อวานนี้|วันนี้|ขณะนี้)'
     ]
     for pattern in time_patterns:
         times.extend(re.findall(pattern, text))
 
+    # --- 3. สกัดจำนวนคนบาดเจ็บ/เสียชีวิต (เอาเฉพาะที่มีตัวเลขชัดเจน) ---
     cas_patterns = [
-        r'(?:เสียชีวิต|ผู้เสียชีวิต|ดับ|ดับคาที่)\s*\d*\s*(?:ราย|คน)?',
-        r'(?:บาดเจ็บ|ผู้บาดเจ็บ|สาหัส|สำลักควัน)\s*\d*\s*(?:ราย|คน)?'
+        r'(?:บาดเจ็บ|ผู้บาดเจ็บ|สำลักควัน)\s*\d+\s*(?:ราย|คน)?',
+        r'(?:เสียชีวิต|ผู้เสียชีวิต|ดับ|ดับคาที่)\s*\d+\s*(?:ราย|คน)?',
+        r'\d+\s*(?:ราย|คน)\s*(?:บาดเจ็บ|เสียชีวิต)'
     ]
     for pattern in cas_patterns:
-        casualties.extend(re.findall(pattern, text))
+        matches = re.findall(pattern, text)
+        casualties.extend(matches)
 
+    # --- 4. สกัดหน่วยงานช่วยเหลือ (เน้นเฉพาะชื่อหน่วยงาน ไม่ดึงยาวเป็นประโยค) ---
     org_patterns = [
-        r'(?:มูลนิธิ|กู้ภัย|สว่าง|ป่อเต็กตึ๊ง|ร่วมกตัญญู|ศูนย์วิทยุ|เจ้าหน้าที่|ตำรวจ|สภ\.|ปภ\.|รพ\.|โรงพยาบาล|เทศกิจ|ทหาร)[ก-๙A-Za-z0-9\.\s]*'
+        r'(?:มูลนิธิ[ก-๙]+|กู้ภัย[ก-๙]+|อาสาสมัคร[ก-๙]+|สว่าง[ก-๙]+|ป่อเต็กตึ๊ง|ร่วมกตัญญู)',
+        r'(?:เจ้าหน้าที่ตำรวจ|ตำรวจ|สภ\.[ก-๙]+|ปภ\.[ก-๙]+|กรม[ก-๙]+|ทหาร[ก-๙]+)',
+        r'(?:โรงพยาบาล[ก-๙]+|รพ\.[ก-๙]+|ศูนย์วิทยุ[ก-๙]+|ทีมแพทย์[ก-๙]+)'
     ]
     for pattern in org_patterns:
         matches = re.findall(pattern, text)
-        for m in matches:
-            cleaned_org = m.strip()
-            if len(cleaned_org) > 3:
-                organizations.append(cleaned_org)
+        organizations.extend(matches)
 
     return {
         "locations": list(dict.fromkeys(locations)) if locations else ["ไม่พบข้อมูลสถานที่ชัดเจน"],
-        "times": list(dict.fromkeys(times)) if times else ["ไม่พบข้อมูลเวลาชัดเจน"],
+        "times": list(dict.fromkeys(times)) if times else ["ไม่พบข้อมูลวัน/เวลาชัดเจน"],
         "casualties": list(dict.fromkeys(casualties)) if casualties else ["ไม่พบรายงานผู้บาดเจ็บ/เสียชีวิต"],
         "organizations": list(dict.fromkeys(organizations)) if organizations else ["ไม่พบข้อมูลหน่วยงาน"]
     }
@@ -150,7 +143,7 @@ def extract_entities(text):
 # GUI Section
 # ---------------------------------------------------------
 st.title("🚨 ระบบวิเคราะห์โพสต์เตือนภัยและข่าวอุบัติเหตุ")
-st.caption("💎 ประมวลผลสกัดข้อมูลสถานที่ เวลา ผู้บาดเจ็บ และหน่วยงานช่วยเหลือด้วย NLP ภาษาไทย")
+st.caption("💎 ประมวลผลสกัดข้อมูลสถานที่ วัน/เวลา ตัวเลขผู้บาดเจ็บ และหน่วยงานช่วยเหลือ")
 
 st.sidebar.header("📂 ตัวเลือกข้อมูล")
 uploaded_file = st.sidebar.file_uploader("อัปโหลดไฟล์ CSV (คอลัมน์ 'text')", type=["csv"])
