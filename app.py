@@ -63,7 +63,7 @@ st.markdown("""
         background-color: #e0f7fa !important;
     }
 
-    /* กล่องสรุปประเด็นสำคัญ (ถอดแบบภาพ) */
+    /* กล่องสรุปประเด็นสำคัญ */
     .summary-box {
         background-color: #fff9e6;
         border-left: 6px solid #d9381e;
@@ -121,17 +121,13 @@ def identify_topic(text):
         return "⚠️ แจ้งเตือนภัยทั่วไป"
 
 def generate_summary(text):
-    """สกัดย่อสรุปประเด็นสำคัญใน 1-2 ประโยคแรก หรือประโยคที่มีสาระสำคัญสูงสุด"""
     sentences = [s.strip() for s in text.split(' ') if len(s.strip()) > 10]
     if not sentences:
         return text
-    
-    # ดึงเฉพาะประโยคที่มีข้อมูลสำคัญ เช่น ผู้บาดเจ็บ ดำเนินคดี หรือสถานที่
     key_sentences = []
     for s in sentences:
         if any(k in s for k in ['ดำเนินคดี', 'บาดเจ็บ', 'เสียชีวิต', 'พุ่งชน', 'ชน', 'เกิดเหตุ', 'พบสารเสพติด']):
             key_sentences.append(s)
-            
     if key_sentences:
         return ' '.join(key_sentences[:2])
     return ' '.join(sentences[:2])
@@ -170,22 +166,47 @@ def calculate_severity(casualties_list, text):
     else:
         return "🟡 ความรุนแรงระดับปานกลาง (Medium)"
 
+def extract_structured_location(text):
+    """สกัดและระบุที่ตั้งแบบแยกโครงสร้าง (ชื่อสถานที่, หมู่บ้าน, ตำบล, อำเภอ, จังหวัด)"""
+    loc_info = []
+
+    # 1. ชื่อสถานที่เฉพาะ
+    site = re.search(r'(?:ศูนย์เด็กเล็ก[ก-๙]*|โรงเรียน[ก-๙]*|วัด[ก-๙]*|ตลาด[ก-๙]*|โรงงาน[ก-๙]*|สี่แยก[ก-๙]*|สามแยก[ก-๙]*|สะพาน[ก-๙]*)', text)
+    if site:
+        loc_info.append(f"🏫 **ชื่อสถานที่:** {site.group(0).strip()}")
+
+    # 2. หมู่บ้าน / หมู่ที่
+    village = re.search(r'(?:หมู่บ้าน[ก-๙0-9]+|ม\.\d+|หมู่ที่\s*\d+)', text)
+    if village:
+        loc_info.append(f"🏡 **หมู่บ้าน/หมู่ที่:** {village.group(0).strip()}")
+
+    # 3. ตำบล / แขวง
+    subdistrict = re.search(r'(?:ตำบล|ต\.|แขวง)\s*([ก-๙]+)', text)
+    if subdistrict:
+        loc_info.append(f"📍 **ตำบล/แขวง:** ต.{subdistrict.group(1).strip()}")
+    elif "แก่งเสี้ยน" in text:
+        loc_info.append("📍 **ตำบล/แขวง:** ต.แก่งเสี้ยน")
+
+    # 4. อำเภอ / เขต
+    district = re.search(r'(?:อำเภอ|อ\.|เขต)\s*([ก-๙]+)', text)
+    if district:
+        loc_info.append(f"🏙️ **อำเภอ/เขต:** อ.{district.group(1).strip()}")
+    elif "เมืองกาญจนบุรี" in text:
+        loc_info.append("🏙️ **อำเภอ/เขต:** อ.เมืองกาญจนบุรี")
+
+    # 5. จังหวัด
+    province = re.search(r'(?:จังหวัด|จ\.)\s*([ก-๙]+)', text)
+    if province:
+        loc_info.append(f"🗺️ **จังหวัด:** จ.{province.group(1).strip()}")
+    elif "กาญจนบุรี" in text:
+        loc_info.append("🗺️ **จังหวัด:** จ.กาญจนบุรี")
+
+    return loc_info if loc_info else ["ไม่พบข้อมูลสถานที่ชัดเจน"]
+
 def extract_entities(text):
-    locations, times, casualties = [], [], []
+    times, casualties = [], []
 
-    # --- 1. สกัดสถานที่ ---
-    loc_patterns = [
-        r'(?:บริเวณ|หน้า|หลัง|ตรงข้าม|ใกล้|ทางเข้า|สี่แยก|สามแยก|แยก|ซอย|ถนน|หมู่บ้าน|แขวง|เขต|ตำบล|อำเภอ|จังหวัด|ต\.|อ\.|จ\.)\s*([ก-๙0-9A-Za-z\s.]+?)(?=\s|เมื่อ|เวลา|ส่งผล|ทำให้|เจ้าหน้าที่|มูลนิธิ|$)',
-        r'(?:ศูนย์[ก-๙]+|โรงเรียน[ก-๙]+|อาคาร[ก-๙]+)'
-    ]
-    for pattern in loc_patterns:
-        matches = re.findall(pattern, text)
-        for m in matches:
-            val = m.strip() if isinstance(m, str) else m
-            if len(val) > 2 and val not in ['เกิดเหตุ', 'มีผู้', 'ได้รับบาดเจ็บ']:
-                locations.append(val)
-
-    # --- 2. สกัดวัน/เวลา ---
+    # --- สกัดวัน/เวลา ---
     time_patterns = [
         r'(?:วันที่\s*)?\d{1,2}\s*(?:ม\.ค\.|ก\.พ\.|มี\.ค\.|เม\.ย\.|พ\.ค\.|มิ\.ย\.|ก\.ค\.|ส\.ค\.|ก\.ย\.|ต\.ค\.|พ\.ย\.|ธ\.ค\.|มกราคม|กุมภาพันธ์|มีนาคม|เมษายน|พฤษภาคม|มิถุนายน|กรกฎาคม|สิงหาคม|กันยายน|ตุลาคม|พฤศจิกายน|ธันวาคม)(?:\s*(?:พ\.ศ\.|ศ\.)?\s*\d{2,4})?',
         r'\d{1,2}[:.]\d{2}\s*(?:น\.|นาฬิกา)',
@@ -195,7 +216,7 @@ def extract_entities(text):
     for pattern in time_patterns:
         times.extend(re.findall(pattern, text))
 
-    # --- 3. สกัดจำนวนคนบาดเจ็บ/เสียชีวิต ---
+    # --- สกัดจำนวนคนบาดเจ็บ/เสียชีวิต ---
     cas_patterns = [
         r'(?:บาดเจ็บ|ผู้บาดเจ็บ|สำลักควัน)\s*\d+\s*(?:ราย|คน)?',
         r'(?:เสียชีวิต|ผู้เสียชีวิต|ดับ|ดับคาที่)\s*\d+\s*(?:ราย|คน)?',
@@ -204,7 +225,7 @@ def extract_entities(text):
     for pattern in cas_patterns:
         casualties.extend(re.findall(pattern, text))
 
-    # --- 4. สกัดหน่วยงานช่วยเหลือ ---
+    # --- สกัดหน่วยงานช่วยเหลือ ---
     org_details = []
     if re.search(r'ตำรวจ|สภ\.|เจ้าหน้าที่ตำรวจ', text):
         action = " (หน้าที่: ตรวจสอบ/ดำเนินคดีทางกฎหมาย)" if any(k in text for k in ['ดำเนินคดี', 'สอบสวน', 'ตรวจหาสาร', 'แจ้งข้อหา']) else ""
@@ -218,7 +239,7 @@ def extract_entities(text):
         org_details.append("หน่วยกู้ภัย / มูลนิธิ (หน้าที่: กู้ภัยและช่วยเหลือผู้ประสบเหตุ)")
 
     return {
-        "locations": list(dict.fromkeys(locations)) if locations else ["ไม่พบข้อมูลสถานที่ชัดเจน"],
+        "locations": extract_structured_location(text),
         "times": list(dict.fromkeys(times)) if times else ["ไม่พบข้อมูลวัน/เวลาชัดเจน"],
         "casualties": list(dict.fromkeys(casualties)) if casualties else ["ไม่พบรายงานผู้บาดเจ็บ/เสียชีวิต"],
         "organizations": list(dict.fromkeys(org_details)) if org_details else ["ไม่พบข้อมูลหน่วยงานช่วยเหลือ"]
@@ -260,7 +281,7 @@ if st.button("🔍 วิเคราะห์ข้อความ", type="prim
 
         st.markdown("---")
         
-        # --- กล่องสรุปประเด็นสำคัญ (UI เดียวกับในภาพ) ---
+        # กล่องสรุปประเด็นสำคัญ
         st.markdown(f"""
             <div class="summary-box">
                 <div class="summary-title">สรุปประเด็นสำคัญ</div>
@@ -282,7 +303,7 @@ if st.button("🔍 วิเคราะห์ข้อความ", type="prim
             with st.container(border=True):
                 st.markdown("### 📍 สถานที่เกิดเหตุ (Where)")
                 for loc in entities["locations"]:
-                    st.write(f"• {loc}")
+                    st.markdown(f"• {loc}")
 
             with st.container(border=True):
                 st.markdown("### ⏰ วัน/เวลา เกิดเหตุ (When)")
