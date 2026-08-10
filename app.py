@@ -2,20 +2,16 @@ import streamlit as st
 import pandas as pd
 import re
 from pythainlp.tokenize import word_tokenize
-from pythainlp.tag.named_entity import ThaiNameTagger
+from pythainlp.tag import pos_tag
 from pythainlp.corpus import thai_stopwords
 
+# ตั้งค่าหน้าเว็บ
 st.set_page_config(
     page_title="ระบบวิเคราะห์โพสต์เตือนภัย/ข่าวอุบัติเหตุ",
     page_icon="🚨",
     layout="wide"
 )
 
-@st.cache_resource
-def load_ner():
-    return ThaiNameTagger()
-
-ner_tagger = load_ner()
 stopwords = set(thai_stopwords())
 
 # 1. Regex & Cleansing
@@ -48,25 +44,31 @@ def identify_topic(text):
 
 # 4. POS & NER / Extraction
 def extract_entities(text):
-    entities = ner_tagger.get_ner(text)
+    tokens = word_tokenize(text, engine="newmm")
+    pos_tagged = pos_tag(tokens, engine="perceptron")
+    
     locations, times, organizations = [], [], []
     
-    for word, pos, tag in entities:
-        if 'LOCATION' in tag or 'LOC' in tag:
-            locations.append(word)
-        elif 'TIME' in tag or 'DATE' in tag:
-            times.append(word)
-        elif 'ORGANIZATION' in tag or 'ORG' in tag:
-            organizations.append(word)
+    # สกัดคำที่เป็นชื่อเฉพาะ/องค์กร/สถานที่ จาก POS tagging และ Keyword matching
+    for word, pos in pos_tagged:
+        if pos in ['PROPN', 'NPRU']:
+            if any(k in word for k in ['ถนน', 'ซอย', 'แยก', 'แขวง', 'เขต', 'จังหวัด', 'อำเภอ', 'ตำบล', 'หมู่บ้าน', 'โค้ง']):
+                locations.append(word)
+            elif any(k in word for k in ['มูลนิธิ', 'กู้ภัย', 'ตำรวจ', 'สภ', 'ปภ', 'ศูนย์', 'รพ', 'โรงพยาบาล', 'กรม', 'ทหาร']):
+                organizations.append(word)
+
+    # Regex เสริมการจับสถานที่
+    loc_regex = re.findall(r'(?:บริเวณ|หน้า|ซอย|ถนน|แยก|ตำบล|อำเภอ|จังหวัด|เขต|แขวง)\s*[ก-๙0-9]+', text)
+    locations.extend(loc_regex)
             
-    # Regex สกัดเวลาเพิ่มเติม
-    time_regex = re.findall(r'(\d{1,2}[:.]\d{2}\s*น\.|เวลา\s*\d{1,2}[:.]\d{2}|เช้า|ดึก|บ่าย|เมื่อวาน|วันนี้)', text)
+    # Regex สกัดวันเวลา
+    time_regex = re.findall(r'(\d{1,2}[:.]\d{2}\s*น\.|เวลา\s*\d{1,2}[:.]\d{2}|เช้า|ดึก|บ่าย|เมื่อวาน|วันนี้|เมื่อกลางดึก)', text)
     times.extend(time_regex)
     
     # Rule-based สกัดผู้บาดเจ็บ/เสียชีวิต
     casualties = re.findall(r'((?:บาดเจ็บ|เสียชีวิต|ผู้บาดเจ็บ|ผู้เสียชีวิต|สำลักควัน)\s*\d*\s*(?:ราย|คน)?)', text)
     
-    # Rule-based สกัดหน่วยงานช่วยเหลือ
+    # Rule-based สกัดหน่วยงานช่วยเหลือเพิ่มเติม
     rescue_terms = re.findall(r'(มูลนิธิ[ก-๙]+|กู้ภัย[ก-๙]+|เจ้าหน้าที่[ก-๙]+|เทศกิจ|ตำรวจ|โรงพยาบาล[ก-๙]+|ศูนย์วิทยุ[ก-๙]+|สภ\.[ก-๙]+|ปภ\.[ก-๙]+|กรม[ก-๙]+|ทหาร[ก-๙]+)', text)
     organizations.extend(rescue_terms)
 
@@ -124,6 +126,6 @@ if st.button("🔍 วิเคราะห์ข้อความ", type="prim
                 st.write(f"- {org}")
 
         st.divider()
-        with st.expander("🛠️ ดูรายละเอียดNLP (Cleansing & Tokenization)"):
+        with st.expander("🛠️ ดูรายละเอียด NLP (Cleansing & Tokenization & POS Tagging)"):
             st.write("**ข้อความหลังทำ Cleansing:**", cleaned)
             st.write("**ผลการตัดคำ (Tokens):**", tokens)
