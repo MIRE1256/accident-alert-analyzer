@@ -5,7 +5,7 @@ from pythainlp.tokenize import word_tokenize
 from pythainlp.corpus import thai_stopwords
 
 # ---------------------------------------------------------
-# ตั้งค่าหน้าเว็บ และ CSS Custom
+# ตั้งค่าหน้าเว็บ และ CSS Custom (ฟ้าเทอร์ควอยซ์สดใส)
 # ---------------------------------------------------------
 st.set_page_config(
     page_title="ระบบวิเคราะห์โพสต์เตือนภัย/ข่าวอุบัติเหตุ",
@@ -15,39 +15,31 @@ st.set_page_config(
 
 st.markdown("""
     <style>
-    /* บังคับ Top Bar ด้านบนสุดให้เป็นสีฟ้าเทอร์ควอยซ์ */
+    /* บังคับ Top Bar ให้เป็นสีฟ้าเทอร์ควอยซ์ */
     header[data-testid="stHeader"] {
         background-color: #00acc1 !important;
     }
-    
-    /* ไอคอนบน Top Bar ให้เป็นสีขาว */
     header[data-testid="stHeader"] * {
         color: #ffffff !important;
     }
-
-    /* พื้นหลังหลักของเว็บขาวไข่มุก */
     .stApp {
         background-color: #f4fbfb;
         color: #111111 !important;
     }
-    
     p, span, label, li, div {
         color: #111111 !important;
         font-family: 'Sarabun', sans-serif;
     }
-    
     h1, h2, h3, h4 {
         color: #005b66 !important;
         font-weight: bold !important;
     }
-    
     textarea, input {
         background-color: #ffffff !important;
         color: #111111 !important;
         border: 1px solid #b2ebf2 !important;
         border-radius: 8px !important;
     }
-    
     .stButton>button {
         background-color: #00acc1 !important;
         color: #ffffff !important;
@@ -60,15 +52,13 @@ st.markdown("""
     .stButton>button:hover {
         background-color: #00838f !important;
     }
-    
     [data-testid="stVerticalBlockBorderWrapper"] {
         background-color: #ffffff !important;
         border: 2px solid #80deea !important;
         border-radius: 12px !important;
-        padding: 10px !important;
+        padding: 12px !important;
         box-shadow: 0 2px 6px rgba(0,0,0,0.03) !important;
     }
-    
     [data-testid="stSidebar"] {
         background-color: #e0f7fa !important;
     }
@@ -104,18 +94,60 @@ def identify_topic(text):
     else:
         return "⚠️ แจ้งเตือนภัยทั่วไป"
 
+def extract_action_details(text):
+    """สกัดรายละเอียด ทำอะไร อย่างไร (Action/Behavior Analysis)"""
+    actions = []
+    
+    # พฤติกรรมกริยาหลัก
+    if re.search(r'ขับรถ|พุ่งชน|ชน|พลิกคว่ำ|เสียหลัก|ชนกำแพง|ตกข้างทาง', text):
+        m = re.search(r'(?:ขับรถ|พุ่งชน|ชน|พลิกคว่ำ|เสียหลัก|ตกข้างทาง)[^,.\n]+', text)
+        if m:
+            actions.append(f"📌 การกระทำ/เหตุการณ์: {m.group(0).strip()}")
+            
+    # สาเหตุเพิ่มเติม / ปัจจัยเสี่ยง
+    if re.search(r'สารเสพติด|เมา|ดื่ม|มึนเมา|หลับใน|เบรกแตก|ความเร็วสูง', text):
+        m = re.search(r'พบ[^,.\n]*(?:สารเสพติด|แอลกอฮอล์)|(?:เมา|หลับใน|เบรกแตก|สารเสพติด)[^,.\n]*', text)
+        if m:
+            actions.append(f"⚠️ ปัจจัยเสี่ยง/สาเหตุ: {m.group(0).strip()}")
+            
+    # การดำเนินการของเจ้าหน้าที่
+    if re.search(r'ดำเนินคดี|แจ้งข้อหา|จับกุม|คุมตัว|ตั้งข้อหา', text):
+        m = re.search(r'(?:ดำเนินคดี|แจ้งข้อหา|จับกุม|คุมตัว|ตั้งข้อหา)[^,.\n]+', text)
+        if m:
+            actions.append(f"⚖️ การดำเนินคดี: {m.group(0).strip()}")
+
+    return actions if actions else ["ไม่พบรายละเอียดพฤติกรรมชัดเจน"]
+
+def calculate_severity(casualties_list, text):
+    """ประเมินระดับความรุนแรงของเหตุการณ์"""
+    has_death = any('เสียชีวิต' in c or 'ดับ' in c for c in casualties_list)
+    
+    # ดึงตัวเลขบาดเจ็บ
+    num_injured = 0
+    for c in casualties_list:
+        nums = re.findall(r'\d+', c)
+        if nums:
+            num_injured += int(nums[0])
+            
+    if has_death or num_injured >= 10 or 'สารเสพติด' in text or 'ร้ายแรง' in text:
+        return "🔴 ความรุนแรงระดับสูงมาก (Extreme)"
+    elif num_injured >= 3:
+        return "🟠 ความรุนแรงระดับสูง (High)"
+    else:
+        return "🟡 ความรุนแรงระดับปานกลาง (Medium)"
+
 def extract_entities(text):
-    locations, times, casualties, organizations = [], [], [], []
+    locations, times, casualties = [], [], []
 
     # --- 1. สกัดสถานที่ ---
     loc_patterns = [
-        r'(?:บริเวณ|หน้า|หลัง|ตรงข้าม|ใกล้|ทางเข้า|สี่แยก|สามแยก|แยก|ซอย|ถนน|หมู่บ้าน|แขวง|เขต|ตำบล|อำเภอ|จังหวัด|โค้ง|สะพาน)\s*([ก-๙0-9A-Za-z\s]+?)(?=\s|เมื่อ|เวลา|ส่งผล|ทำให้|เจ้าหน้าที่|มูลนิธิ|$)',
-        r'(?:ถนน|ซอย|แยก|ต\.|อ\.|จ\.)\s*[ก-๙0-9]+'
+        r'(?:บริเวณ|หน้า|หลัง|ตรงข้าม|ใกล้|ทางเข้า|สี่แยก|สามแยก|แยก|ซอย|ถนน|หมู่บ้าน|แขวง|เขต|ตำบล|อำเภอ|จังหวัด|ต\.|อ\.|จ\.)\s*([ก-๙0-9A-Za-z\s.]+?)(?=\s|เมื่อ|เวลา|ส่งผล|ทำให้|เจ้าหน้าที่|มูลนิธิ|$)',
+        r'(?:ศูนย์[ก-๙]+|โรงเรียน[ก-๙]+|อาคาร[ก-๙]+)'
     ]
     for pattern in loc_patterns:
         matches = re.findall(pattern, text)
         for m in matches:
-            val = m.strip() if isinstance(m, str) else m[0].strip()
+            val = m.strip() if isinstance(m, str) else m
             if len(val) > 2 and val not in ['เกิดเหตุ', 'มีผู้', 'ได้รับบาดเจ็บ']:
                 locations.append(val)
 
@@ -138,51 +170,31 @@ def extract_entities(text):
     for pattern in cas_patterns:
         casualties.extend(re.findall(pattern, text))
 
-    # --- 4. สกัดหน่วยงานช่วยเหลือ และบทบาทการปฏิบัติงาน (รายละเอียดเพิ่มเติม) ---
+    # --- 4. สกัดหน่วยงานช่วยเหลือ และระบุหน้าที่ ---
     org_details = []
-    
-    # เช็คตำรวจและการดำเนินคดี
     if re.search(r'ตำรวจ|สภ\.|เจ้าหน้าที่ตำรวจ', text):
-        action = ""
-        if any(k in text for k in ['ดำเนินคดี', 'สอบสวน', 'ตรวจหาสาร', 'คุมตัว', 'แจ้งข้อหา']):
-            action = " (หน้าที่: ตรวจสอบ/ดำเนินคดีทางกฎหมาย)"
-        elif any(k in text for k in ['อำนวยความสะดวก', 'การจราจร']):
-            action = " (หน้าที่: อำนวยความสะดวกการจราจร)"
+        action = " (หน้าที่: ตรวจสอบ/ดำเนินคดีทางกฎหมาย)" if any(k in text for k in ['ดำเนินคดี', 'สอบสวน', 'ตรวจหาสาร', 'แจ้งข้อหา']) else ""
         org_details.append(f"เจ้าหน้าที่ตำรวจ{action}")
 
-    # เช็คทีมแพทย์และโรงพยาบาล
     if re.search(r'โรงพยาบาล|รพ\.|แพทย์|ปฐมพยาบาล', text):
-        action = ""
-        if any(k in text for k in ['นำส่ง', 'รักษา', 'บาดเจ็บ', 'ปฐมพยาบาล', 'ส่งตัว']):
-            action = " (หน้าที่: ปฐมพยาบาล / รับตัวผู้บาดเจ็บเข้ารักษา)"
+        action = " (หน้าที่: ปฐมพยาบาล / รับตัวผู้บาดเจ็บเข้ารักษา)" if any(k in text for k in ['นำส่ง', 'รักษา', 'บาดเจ็บ', 'ตรวจร่างกาย']) else ""
         org_details.append(f"โรงพยาบาล / ทีมแพทย์{action}")
 
-    # เช็คกู้ภัย/มูลนิธิ
     if re.search(r'กู้ภัย|มูลนิธิ|สว่าง|ป่อเต็กตึ๊ง|ร่วมกตัญญู|อาสาสมัคร', text):
-        action = ""
-        if any(k in text for k in ['ช่วยเหลือ', 'ค้นหา', 'ตัดถ่าง', 'ลำเลียง']):
-            action = " (หน้าที่: กู้ภัยและช่วยเหลือผู้ประสบเหตุ)"
-        org_details.append(f"หน่วยกู้ภัย / มูลนิธิ{action}")
-
-    # เช็คดับเพลิง/ปภ.
-    if re.search(r'ดับเพลิง|บรรเทาสาธารณภัย|ปภ\.|นักผจญเพลิง', text):
-        action = " (หน้าที่: ควบคุมเพลิง / ดับไฟ)"
-        org_details.append(f"เจ้าหน้าที่ดับเพลิง / ปภ.{action}")
-
-    organizations = list(dict.fromkeys(org_details))
+        org_details.append("หน่วยกู้ภัย / มูลนิธิ (หน้าที่: กู้ภัยและช่วยเหลือผู้ประสบเหตุ)")
 
     return {
         "locations": list(dict.fromkeys(locations)) if locations else ["ไม่พบข้อมูลสถานที่ชัดเจน"],
         "times": list(dict.fromkeys(times)) if times else ["ไม่พบข้อมูลวัน/เวลาชัดเจน"],
         "casualties": list(dict.fromkeys(casualties)) if casualties else ["ไม่พบรายงานผู้บาดเจ็บ/เสียชีวิต"],
-        "organizations": organizations if organizations else ["ไม่พบข้อมูลหน่วยงานช่วยเหลือ"]
+        "organizations": list(dict.fromkeys(org_details)) if org_details else ["ไม่พบข้อมูลหน่วยงานช่วยเหลือ"]
     }
 
 # ---------------------------------------------------------
 # GUI Section
 # ---------------------------------------------------------
 st.title("🚨 ระบบวิเคราะห์โพสต์เตือนภัยและข่าวอุบัติเหตุ")
-st.caption("💎 ประมวลผลสกัดข้อมูลสถานที่ วัน/เวลา ตัวเลขผู้บาดเจ็บ และรายละเอียดหน่วยงานช่วยเหลือ")
+st.caption("💎 สกัดข้อมูลเชิงลึก: สถานที่ วัน/เวลา พฤติกรรมเหตุการณ์ ผู้บาดเจ็บ และหน่วยงานช่วยเหลือ")
 
 st.sidebar.header("📂 ตัวเลือกข้อมูล")
 uploaded_file = st.sidebar.file_uploader("อัปโหลดไฟล์ CSV (คอลัมน์ 'text')", type=["csv"])
@@ -198,7 +210,7 @@ if uploaded_file is not None:
     except Exception:
         st.sidebar.error("เกิดข้อผิดพลาดในการอ่านไฟล์ CSV")
 
-user_input = st.text_area("วางข้อความแจ้งเหตุเพื่อทดสอบวิเคราะห์:", value=input_text, height=140)
+user_input = st.text_area("วางข้อความแจ้งเหตุเพื่อทดสอบวิเคราะห์:", value=input_text, height=130)
 
 if st.button("🔍 วิเคราะห์ข้อความ", type="primary"):
     if not user_input.strip():
@@ -208,35 +220,51 @@ if st.button("🔍 วิเคราะห์ข้อความ", type="prim
         tokens = process_tokens(cleaned)
         topic = identify_topic(cleaned)
         entities = extract_entities(cleaned)
+        action_details = extract_action_details(cleaned)
+        severity = calculate_severity(entities["casualties"], cleaned)
 
         st.markdown("---")
-        st.subheader("📊 ผลการวิเคราะห์ข้อมูล")
-        st.info(f"**ประเภทเหตุการณ์ (Topic):** {topic}")
+        st.subheader("📊 ผลการวิเคราะห์ข้อมูลเชิงลึก")
+        
+        # แสดง Topic และ Severity
+        col_top1, col_top2 = st.columns(2)
+        with col_top1:
+            st.info(f"**ประเภทเหตุการณ์:** {topic}")
+        with col_top2:
+            st.error(f"**ระดับประเมินสถานการณ์:** {severity}")
 
+        # การ์ดแสดงผล 4 ช่องหลัก
         col1, col2 = st.columns(2)
         
         with col1:
             with st.container(border=True):
-                st.markdown("### 📍 สถานที่เกิดเหตุ")
+                st.markdown("### 📍 สถานที่เกิดเหตุ (Where)")
                 for loc in entities["locations"]:
                     st.write(f"• {loc}")
 
             with st.container(border=True):
-                st.markdown("### ⏰ วัน/เวลา เกิดเหตุ")
+                st.markdown("### ⏰ วัน/เวลา เกิดเหตุ (When)")
                 for t in entities["times"]:
                     st.write(f"• {t}")
 
         with col2:
             with st.container(border=True):
-                st.markdown("### 🚑 ผู้บาดเจ็บ / เสียชีวิต")
+                st.markdown("### 🚑 ผู้บาดเจ็บ / เสียชีวิต (Casualties)")
                 for c in entities["casualties"]:
                     st.write(f"• {c}")
 
             with st.container(border=True):
-                st.markdown("### 🏢 หน่วยงานช่วยเหลือ")
+                st.markdown("### 🏢 หน่วยงานช่วยเหลือ (Who Helped)")
                 for org in entities["organizations"]:
                     st.write(f"• {org}")
 
+        # การ์ดใหญ่แสดงพฤติกรรม ทำอะไร อย่างไร
+        with st.container(border=True):
+            st.markdown("### 🎬 รายละเอียดพฤติกรรมและการกระทำ (What & How)")
+            for act in action_details:
+                st.write(f"{act}")
+
+        # ส่วนรายละเอียด NLP
         with st.expander("🛠️ ดูรายละเอียดการประมวลผล NLP (Tokens & Cleansing)"):
             st.write("**ข้อความหลังทำ Cleansing:**", cleaned)
             st.write("**ผลการตัดคำ (Tokens):**", tokens)
